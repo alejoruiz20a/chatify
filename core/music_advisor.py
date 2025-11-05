@@ -130,16 +130,16 @@ RESPUESTA:"""
             user_profile = self._create_user_profile()
             prompt = f"""Basándote en este perfil musical:
 
-{user_profile}
+            {user_profile}
 
-Genera recomendaciones musicales personalizadas. El usuario ama estos artistas: {', '.join(artist_names)}
+            Genera recomendaciones musicales personalizadas. El usuario ama estos artistas: {', '.join(artist_names)}
 
-Aquí tienes recomendaciones técnicas de Spotify. Por favor, organízalas de forma amigable y explica por qué le podrían gustar:
+            Aquí tienes recomendaciones técnicas de Spotify. Por favor, organízalas de forma amigable y explica por qué le podrían gustar:
 
-RECOMENDACIONES TÉCNICAS:
-{self._format_spotify_recommendations(recommendations)}
+            RECOMENDACIONES TÉCNICAS:
+            {self._format_spotify_recommendations(recommendations)}
 
-Responde con entusiasmo, organiza las recomendaciones de forma clara y explica brevemente por qué cada canción podría gustarle basándote en sus gustos. Usa emojis! 🎵"""
+            Responde con entusiasmo, organiza las recomendaciones de forma clara y explica brevemente por qué cada canción podría gustarle basándote en sus gustos."""
             
             response = self.llm.invoke(prompt)
             return response.content
