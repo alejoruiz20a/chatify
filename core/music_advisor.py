@@ -84,17 +84,15 @@ class MusicAdvisor:
         top_artists = ', '.join([a['name'] for a in profile.get('top_artists', [])[:5]])
         genres = ', '.join([f"{g} ({c})" for g, c in top_genres])
         
-        top_tracks = ', '.join([t['name'] for t in profile.get('top_tracks', [])[:5]])
+        # top_tracks = ', '.join([t['name'] for t in profile.get('top_tracks', [])[:5]])
 
         return f"""Nombre: {user_name}
             Artistas favoritos: {top_artists}
-            Géneros: {genres}
-            Canciones más escuchadas: {top_tracks}
-            Canciones guardadas: {len(profile.get('saved_tracks', []))}"""
+            Géneros: {genres}"""
     
     def _get_relevant_info(self, question):
         # RETRIEVAL
-        results = self.knowledge_base.search(question, k=20)
+        results = self.knowledge_base.search(question, k=50)
         
         if not results:
             return "Sin información específica"

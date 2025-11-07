@@ -51,6 +51,7 @@ class MusicKnowledgeBase:
                 metadata={"type": "artist", "artist_name": artist_info['name']}
             ))
         
+        print(music_data.get('saved_tracks', []))
         for track in music_data.get('saved_tracks', []):
             artists_str = ', '.join(track.get('artists', []))
             content = f"CANCIÓN GUARDADA: {track['name']}\nArtistas: {artists_str}\nÁlbum: {track['album']}"

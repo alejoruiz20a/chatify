@@ -26,7 +26,34 @@ class SpotifyClient:
         return self.sp.current_user_top_tracks(limit=min(limit, 50), time_range=time_range)
     
     def get_saved_tracks(self, limit=50):
-        return self.sp.current_user_saved_tracks(limit=min(limit, 50))
+        """
+        Obtiene todas las canciones guardadas sin duplicados
+        Args:
+            limit: Máximo de canciones por request (máx 50 por limitación de Spotify)
+        """
+        all_tracks = []
+        offset = 0
+        batch_size = min(limit, 50)  # Spotify permite máximo 50 por request
+        
+        while True:
+            results = self.sp.current_user_saved_tracks(limit=batch_size, offset=offset)
+            
+            if not results['items']:
+                break
+            
+            all_tracks.extend(results['items'])
+            
+            # Si obtuvimos menos canciones de las solicitadas, ya no hay más
+            if len(results['items']) < batch_size:
+                break
+                
+            offset += batch_size
+            
+            # Límite de seguridad opcional (por ejemplo, máximo 500 canciones)
+            if len(all_tracks) >= 500:
+                break
+        
+        return {'items': all_tracks}
     
     def get_user_playlists(self, limit=50):
         return self.sp.current_user_playlists(limit=limit)
