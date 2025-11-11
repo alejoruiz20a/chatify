@@ -6,16 +6,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class SpotifyClient:
-    def __init__(self, token_info=None):
+    def __init__(self, token_info):
         """
-        Initialize Spotify client with user token
-        Args:
-            token_info: Dictionary with OAuth token information
+        Initialize Spotify client with USER token only
+        No fallback to developer credentials needed
         """
         if not token_info:
-            raise ValueError("token_info is required for SpotifyClient")
+            raise ValueError("User token is required")
         
-        # Always use the token from AuthManager
+        # 👇 Solo usa el token del usuario, NO tus credenciales
         self.sp = spotipy.Spotify(auth=token_info['access_token'])
     
     def get_user_profile(self):

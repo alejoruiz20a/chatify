@@ -8,39 +8,31 @@ from urllib.parse import urlencode
 load_dotenv()
 
 class AuthManager:
-    """Manages Spotify OAuth authentication for multiple users"""
-    
     def __init__(self):
-        self.client_id = os.getenv("SPOTIFY_CLIENT_ID")
-        self.client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
-        self.redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:8501")
-        self.scope = "user-library-read user-top-read playlist-read-private user-read-recently-played"
-    
-    def get_auth_url(self):
-        """Generates Spotify authorization URL"""
-        auth_manager = SpotifyOAuth(
+        self.client_id = os.getenv("SPOTIFY_CLIENT_ID")  # TU client_id
+        self.client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")  # TU client_secret
+        self.redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI")  # TU redirect_uri
+        
+        self.sp_oauth = SpotifyOAuth(
             client_id=self.client_id,
             client_secret=self.client_secret,
             redirect_uri=self.redirect_uri,
-            scope=self.scope,
+            scope="user-library-read user-top-read playlist-read-private user-read-recently-played",
+            cache_path=None,
             show_dialog=True
         )
-        return auth_manager.get_authorize_url()
+    
+    def get_auth_url(self):
+        """Generate authorization URL for users"""
+        return self.sp_oauth.get_authorize_url()
     
     def get_access_token(self, code):
-        """Exchanges authorization code for access token"""
-        auth_manager = SpotifyOAuth(
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            redirect_uri=self.redirect_uri,
-            scope=self.scope
-        )
-        
+        """Exchange authorization code for access token"""
         try:
-            token_info = auth_manager.get_access_token(code, as_dict=True)
+            token_info = self.sp_oauth.get_access_token(code)
             return token_info
         except Exception as e:
-            st.error(f"Error obtaining token: {e}")
+            print(f"Error getting access token: {e}")
             return None
     
     def refresh_token(self, refresh_token):

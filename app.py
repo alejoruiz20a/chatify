@@ -160,24 +160,10 @@ if not st.session_state.authenticated:
         st.info("**Sign in with your Spotify account to get started**")
         
         auth_url = auth_manager.get_auth_url()
-        
+
         st.markdown(f"""
         <a href="{auth_url}" target="_self">
-            <button style="
-                background-color: #1DB954;
-                color: white;
-                padding: 15px 32px;
-                text-align: center;
-                text-decoration: none;
-                display: inline-block;
-                font-size: 16px;
-                margin: 4px 2px;
-                cursor: pointer;
-                border: none;
-                border-radius: 50px;
-                font-weight: bold;
-                width: 100%;
-            ">
+            <button style="background-color: #1DB954; color: white; padding: 15px 32px; border: none; border-radius: 50px; font-weight: bold; width: 100%;">
                 Sign in with Spotify
             </button>
         </a>
