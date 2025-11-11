@@ -21,8 +21,12 @@ class MusicDataCollector:
         }
     
     def collect_all_data(self):
+        """Collect all music data from Spotify API"""
+        # Get user profile FIRST (before cleaning)
         self.collected_data['user_profile'] = self.spotify_client.get_user_profile()
-        self.clean_sensitive_data()
+        
+        # DON'T clean sensitive data yet - we need the ID!
+        # We'll clean it later, but keep the ID
         
         top_artists = self.spotify_client.get_top_artists(limit=30)
         self.collected_data['top_artists'] = [extract_artist_info(a) for a in top_artists['items']]
@@ -44,20 +48,35 @@ class MusicDataCollector:
         
         self._collect_artist_info()
         
+        # Clean sensitive data AFTER we have everything
+        # But keep the user ID for the knowledge base
+        self.clean_sensitive_data()
+        
         return self.collected_data
     
     def clean_sensitive_data(self):
+        """
+        Clean sensitive data but KEEP the user ID
+        We need it for Weaviate collection naming
+        """
         if 'user_profile' not in self.collected_data:
             return
         
         profile = self.collected_data['user_profile']
-        for field in ['id', 'external_urls', 'href', 'uri', 'images']:
+        
+        # Remove everything EXCEPT id and display_name
+        fields_to_remove = ['external_urls', 'href', 'uri', 'images', 'email', 'country']
+        for field in fields_to_remove:
             profile.pop(field, None)
         
+        # Simplify display name but keep it
         if 'display_name' in profile:
             profile['display_name'] = profile['display_name'].split()[0]
+        
+        # KEEP the 'id' field - don't remove it!
     
     def _collect_artist_info(self):
+        """Collect detailed information for all artists"""
         all_artist_ids = set()
         
         for artist in self.collected_data['top_artists']:
@@ -76,5 +95,6 @@ class MusicDataCollector:
                 pass
     
     def save_data_to_file(self, filename="user_music_data.json"):
+        """Save collected data to a JSON file"""
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(self.collected_data, f, indent=2, ensure_ascii=False)

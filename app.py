@@ -58,7 +58,7 @@ def handle_auth_callback():
 # Handle authentication callback
 handle_auth_callback()
 
-# NOW load token from file ONLY if not already authenticated
+# Load token from file if not already authenticated
 if not st.session_state.authenticated and st.session_state.token_info is None:
     try:
         import json
@@ -67,13 +67,11 @@ if not st.session_state.authenticated and st.session_state.token_info is None:
             with open("user_token.json", "r") as f:
                 st.session_state.token_info = json.load(f)
                 st.session_state.authenticated = True
-                # Optional: small rerun to refresh the state
                 st.rerun()
     except FileNotFoundError:
-        pass  # No saved token, stay logged out
+        pass
     except Exception as e:
         st.sidebar.error(f"Error loading saved token: {e}")
-        # If token is corrupted, delete it
         try:
             os.remove("user_token.json")
         except:
@@ -88,19 +86,26 @@ def initialize_system():
             music_data = collector.collect_all_data()
             st.session_state.music_data = music_data
             
-            # Get user ID for multi-tenancy
+            # Get user ID for multi-tenancy - NOW it should work!
             user_id = music_data.get('user_profile', {}).get('id', 'unknown_user')
+            print(f"User ID: {user_id}")  # Debug
             
             status.update(label="Creating knowledge base...")
             knowledge_base = MusicKnowledgeBase(user_id=user_id)
-            knowledge_base.initialize_knowledge_base(music_data)
+            
+            # Check if collection exists
+            if knowledge_base.collection_exists():
+                status.update(label="Knowledge base already exists, loading...")
+            else:
+                status.update(label="Creating new knowledge base...")
+            
+            knowledge_base.initialize_knowledge_base(music_data, force_recreate=False)
             st.session_state.knowledge_base = knowledge_base
 
             status.update(label="Saving data locally...")
             collector.save_data_to_file("user_music_data.json")
             
             status.update(label="Setting up your Chatify...")
-            # 👇 Pasa el token_info al MusicAdvisor
             advisor = MusicAdvisor(knowledge_base, music_data, st.session_state.token_info)
             st.session_state.advisor = advisor
             
@@ -114,15 +119,49 @@ def initialize_system():
         import traceback
         st.error(f"Detailed error: {traceback.format_exc()}")
 
+def update_knowledge_base():
+    """Updates the knowledge base with fresh data"""
+    try:
+        with st.status("Updating Knowledge Base...", expanded=True) as status:
+            status.update(label="Collecting fresh music data...")
+            collector = MusicDataCollector(st.session_state.token_info)
+            music_data = collector.collect_all_data()
+            st.session_state.music_data = music_data
+            
+            status.update(label="Updating knowledge base...")
+            st.session_state.knowledge_base.update_knowledge_base(music_data)
+            
+            status.update(label="Refreshing advisor...")
+            st.session_state.advisor = MusicAdvisor(
+                st.session_state.knowledge_base, 
+                music_data, 
+                st.session_state.token_info
+            )
+            
+            status.update(label="Knowledge base updated!", state="complete")
+        
+        st.success("Your knowledge base has been updated with the latest data!")
+        
+    except Exception as e:
+        st.error(f"Error updating knowledge base: {e}")
+        import traceback
+        st.error(f"Detailed error: {traceback.format_exc()}")
+
 def logout():
     """Logs out the user and clears all session data"""
-    # Remove token file first
     try:
         import os
         if os.path.exists("user_token.json"):
             os.remove("user_token.json")
     except Exception as e:
         print(f"Error removing token file: {e}")
+    
+    # Close Weaviate connection if exists
+    if st.session_state.knowledge_base:
+        try:
+            st.session_state.knowledge_base.close()
+        except:
+            pass
     
     # Clear ALL session state
     for key in list(st.session_state.keys()):
@@ -188,13 +227,22 @@ else:
             if st.session_state.music_data:
                 st.subheader("Your Music Profile")
                 user_name = st.session_state.music_data['user_profile'].get('display_name', 'User')
+                user_id = st.session_state.music_data['user_profile'].get('id', 'unknown')
                 st.write(f"**{user_name}**")
+                st.caption(f"ID: {user_id[:8]}...")
                 
                 top_artists = st.session_state.music_data.get('top_artists', [])[:3]
                 if top_artists:
                     st.write("**Top Artists:**")
                     for artist in top_artists:
                         st.write(f"- {artist['name']}")
+            
+            st.markdown("---")
+            st.subheader("Data Management")
+            
+            if st.button("Update Knowledge Base", use_container_width=True, type="secondary"):
+                update_knowledge_base()
+                st.rerun()
         
         st.markdown("---")
         if st.button("Sign Out", use_container_width=True, type="secondary"):

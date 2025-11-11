@@ -1,8 +1,9 @@
-from langchain_community.vectorstores import Weaviate
+import weaviate
+from weaviate.classes.config import Configure, Property, DataType
+from weaviate.classes.query import MetadataQuery
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from collections import Counter
-import weaviate
 import os
 
 class MusicKnowledgeBase:
@@ -10,92 +11,159 @@ class MusicKnowledgeBase:
         self.embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
-        self.vector_store = None
+        self.client = None
         self.user_id = user_id or "default_user"
+        self.collection_name = f"MusicProfile_{self.user_id.replace('-', '_')}"
         
     def _get_weaviate_client(self):
-        """Get Weaviate client using the community integration"""
-        
-        client = weaviate.Client(
-            url=os.getenv("WEAVIATE_URL"),
-            auth_client_secret=weaviate.AuthApiKey(api_key=os.getenv("WEAVIATE_API_KEY")),
-            additional_headers={
-                "X-HuggingFace-Api-Key": os.getenv("HUGGINGFACE_API_KEY", "")
-            }
-        )
-        return client
+        """Get Weaviate v4 client"""
+        if self.client is None:
+            self.client = weaviate.connect_to_weaviate_cloud(
+                cluster_url=os.getenv("WEAVIATE_URL"),
+                auth_credentials=weaviate.auth.AuthApiKey(os.getenv("WEAVIATE_API_KEY")),
+            )
+        return self.client
     
-    def initialize_knowledge_base(self, music_data):
-        """Initialize Weaviate with music data for specific user"""
+    def collection_exists(self):
+        """Check if user's collection already exists (with caching)"""
+        # Check local cache first (fastest)
+        cache_file = f".weaviate_cache_{self.user_id.replace('-', '_')}.txt"
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    cached_name = f.read().strip()
+                    if cached_name == self.collection_name:
+                        return True
+            except:
+                pass
+        
+        # If not in cache, check Weaviate
+        try:
+            client = self._get_weaviate_client()
+            exists = client.collections.exists(self.collection_name)
+            
+            # Cache the result if collection exists
+            if exists:
+                with open(cache_file, 'w') as f:
+                    f.write(self.collection_name)
+            
+            return exists
+        except Exception as e:
+            print(f"Error checking collection existence: {e}")
+            return False
+    
+    def initialize_knowledge_base(self, music_data, force_recreate=False):
+        """
+        Initialize Weaviate with music data for specific user
+        Args:
+            music_data: User's music data
+            force_recreate: If True, delete existing collection and recreate
+        """
         client = self._get_weaviate_client()
         
-        # Create class name with user ID for multi-tenancy
-        class_name = f"MusicProfile_{self.user_id.replace('-', '_')}"
+        # If force_recreate, delete existing collection and clear cache
+        if force_recreate and self.collection_exists():
+            print(f"Deleting existing collection: {self.collection_name}")
+            client.collections.delete(self.collection_name)
+            self._clear_cache()
         
-        # Check if class exists, if not create it
-        if not client.schema.exists(class_name):
-            self._create_schema(client, class_name)
+        # Check if collection exists
+        if not self.collection_exists():
+            print(f"Creating new collection: {self.collection_name}")
+            self._create_collection(client)
+            
+            # Add documents only if collection is new
+            documents = self._create_documents(music_data)
+            self._add_documents_to_collection(client, documents)
+            
+            # Update cache
+            self._update_cache()
+        else:
+            print(f"Collection {self.collection_name} already exists. Skipping initialization.")
         
-        documents = self._create_documents(music_data)
-        
-        # Create vector store with user-specific class
-        self.vector_store = Weaviate(
-            client=client,
-            index_name=class_name,
-            text_key="content",
-            embedding=self.embedding_model,
-            by_text=False,
-            attributes=["type", "artist_name", "track_name", "artists", "user_id"]
-        )
-        
-        # Add documents to Weaviate
-        self.vector_store.add_documents(documents)
-        
-        return self.vector_store
+        return client
     
-    def _create_schema(self, client, class_name):
-        """Create Weaviate schema for music data with user isolation"""
-        schema = {
-            "class": class_name,
-            "description": f"Music profile for user {self.user_id}",
-            "vectorizer": "none",
-            "properties": [
-                {
-                    "name": "content",
-                    "dataType": ["text"],
-                    "description": "The content of the document",
-                },
-                {
-                    "name": "type",
-                    "dataType": ["text"],
-                    "description": "Type of document",
-                },
-                {
-                    "name": "artist_name",
-                    "dataType": ["text"],
-                    "description": "Name of the artist",
-                },
-                {
-                    "name": "track_name",
-                    "dataType": ["text"],
-                    "description": "Name of the track",
-                },
-                {
-                    "name": "artists",
-                    "dataType": ["text"],
-                    "description": "Artists associated with the track",
-                },
-                {
-                    "name": "user_id",
-                    "dataType": ["text"],
-                    "description": "ID of the user",
-                }
+    def update_knowledge_base(self, music_data):
+        """
+        Update knowledge base by recreating it with fresh data
+        """
+        return self.initialize_knowledge_base(music_data, force_recreate=True)
+    
+    def _create_collection(self, client):
+        """Create Weaviate collection with proper schema for music data"""
+        client.collections.create(
+            name=self.collection_name,
+            description=f"Music profile for user {self.user_id}",
+            vectorizer_config=Configure.Vectorizer.none(),
+            properties=[
+                Property(
+                    name="content",
+                    data_type=DataType.TEXT,
+                    description="The content of the document"
+                ),
+                Property(
+                    name="type",
+                    data_type=DataType.TEXT,
+                    description="Type of document (user_profile, artist, saved_track, top_track)"
+                ),
+                Property(
+                    name="artist_name",
+                    data_type=DataType.TEXT,
+                    description="Name of the artist"
+                ),
+                Property(
+                    name="track_name",
+                    data_type=DataType.TEXT,
+                    description="Name of the track"
+                ),
+                Property(
+                    name="artists",
+                    data_type=DataType.TEXT,
+                    description="Artists associated with the track"
+                ),
+                Property(
+                    name="user_id",
+                    data_type=DataType.TEXT,
+                    description="ID of the user"
+                )
             ]
-        }
+        )
+    
+    def _add_documents_to_collection(self, client, documents):
+        """Add documents to Weaviate collection"""
+        collection = client.collections.get(self.collection_name)
         
-        client.schema.create_class(schema)
+        # Prepare data objects for batch insert
+        data_objects = []
+        for doc in documents:
+            # Generate embedding
+            embedding = self.embedding_model.embed_query(doc.page_content)
+            
+            # Prepare properties
+            properties = {
+                "content": doc.page_content,
+                "type": doc.metadata.get("type", ""),
+                "artist_name": doc.metadata.get("artist_name", ""),
+                "track_name": doc.metadata.get("track_name", ""),
+                "artists": doc.metadata.get("artists", ""),
+                "user_id": doc.metadata.get("user_id", self.user_id)
+            }
+            
+            data_objects.append({
+                "properties": properties,
+                "vector": embedding
+            })
+        
+        # Batch insert
+        with collection.batch.dynamic() as batch:
+            for obj in data_objects:
+                batch.add_object(
+                    properties=obj["properties"],
+                    vector=obj["vector"]
+                )
     
     def _create_documents(self, music_data):
+        """Create Document objects from music data"""
         documents = []
         
         # User profile document
@@ -107,7 +175,10 @@ class MusicKnowledgeBase:
             page_content=profile_content,
             metadata={
                 "type": "user_profile",
-                "user_id": self.user_id
+                "user_id": self.user_id,
+                "artist_name": "",
+                "track_name": "",
+                "artists": ""
             }
         ))
         
@@ -119,7 +190,9 @@ class MusicKnowledgeBase:
                 metadata={
                     "type": "artist", 
                     "artist_name": artist_info['name'],
-                    "user_id": self.user_id
+                    "user_id": self.user_id,
+                    "track_name": "",
+                    "artists": ""
                 }
             ))
         
@@ -133,7 +206,8 @@ class MusicKnowledgeBase:
                     "type": "saved_track",
                     "track_name": track['name'],
                     "artists": artists_str,
-                    "user_id": self.user_id
+                    "user_id": self.user_id,
+                    "artist_name": ""
                 }
             ))
 
@@ -147,13 +221,15 @@ class MusicKnowledgeBase:
                     "type": "top_track",
                     "track_name": track['name'],
                     "artists": artists_str,
-                    "user_id": self.user_id
+                    "user_id": self.user_id,
+                    "artist_name": ""
                 }
             ))
 
         return documents
     
     def _create_profile_summary(self, music_data):
+        """Create a summary of user's music profile"""
         all_genres = []
         for artist in music_data.get('top_artists', []):
             all_genres.extend(artist.get('genres', []))
@@ -165,18 +241,79 @@ class MusicKnowledgeBase:
         genres = ', '.join([g for g, _ in top_genres])
         
         return f"""Favorite artists: {top_artists}
-            Main genres: {genres}
-            Total saved songs: {len(music_data.get('saved_tracks', []))}
-            Total playlists: {len(music_data.get('playlists', []))}"""
-    
-    def get_retriever(self, k=5):
-        return self.vector_store.as_retriever(search_kwargs={"k": k})
+Main genres: {genres}
+Total saved songs: {len(music_data.get('saved_tracks', []))}
+Total playlists: {len(music_data.get('playlists', []))}"""
     
     def search(self, query, k=5):
-        return self.vector_store.similarity_search(query, k=k)
+        """
+        Search for similar documents in the collection
+        Args:
+            query: Search query string
+            k: Number of results to return
+        Returns:
+            List of Document objects
+        """
+        client = self._get_weaviate_client()
+        
+        if not self.collection_exists():
+            return []
+        
+        collection = client.collections.get(self.collection_name)
+        
+        # Generate query embedding
+        query_vector = self.embedding_model.embed_query(query)
+        
+        # Perform vector search
+        response = collection.query.near_vector(
+            near_vector=query_vector,
+            limit=k,
+            return_metadata=MetadataQuery(distance=True)
+        )
+        
+        # Convert results to Document objects
+        documents = []
+        for obj in response.objects:
+            documents.append(Document(
+                page_content=obj.properties.get("content", ""),
+                metadata={
+                    "type": obj.properties.get("type", ""),
+                    "artist_name": obj.properties.get("artist_name", ""),
+                    "track_name": obj.properties.get("track_name", ""),
+                    "artists": obj.properties.get("artists", ""),
+                    "user_id": obj.properties.get("user_id", "")
+                }
+            ))
+        
+        return documents
     
     def delete_user_data(self):
         """Delete all data for this user"""
-        if self.vector_store and self.client:
-            class_name = f"MusicProfile_{self.user_id.replace('-', '_')}"
-            self.client.schema.delete_class(class_name)
+        client = self._get_weaviate_client()
+        if self.collection_exists():
+            client.collections.delete(self.collection_name)
+            self._clear_cache()
+            print(f"Deleted collection: {self.collection_name}")
+    
+    def _update_cache(self):
+        """Update local cache file"""
+        cache_file = f".weaviate_cache_{self.user_id.replace('-', '_')}.txt"
+        try:
+            with open(cache_file, 'w') as f:
+                f.write(self.collection_name)
+        except Exception as e:
+            print(f"Error updating cache: {e}")
+    
+    def _clear_cache(self):
+        """Clear local cache file"""
+        cache_file = f".weaviate_cache_{self.user_id.replace('-', '_')}.txt"
+        try:
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+        except Exception as e:
+            print(f"Error clearing cache: {e}")
+    
+    def close(self):
+        """Close Weaviate client connection"""
+        if self.client:
+            self.client.close()
