@@ -6,15 +6,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class SpotifyClient:
-    def __init__(self):
-        self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-            client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri="http://127.0.0.1:8501/callback",
-            scope="user-library-read user-top-read playlist-read-private user-read-recently-played",
-            cache_path=".spotify_cache",
-            show_dialog=True
-        ))
+    def __init__(self, token_info=None):
+        """
+        Inicializa el cliente de Spotify con un token de usuario
+        Args:
+            token_info: Diccionario con la información del token OAuth
+        """
+        if token_info:
+            # Cliente autenticado con token de usuario
+            self.sp = spotipy.Spotify(auth=token_info['access_token'])
+        else:
+            # Fallback al método anterior (para desarrollo)
+            self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+                client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+                client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
+                redirect_uri="http://localhost:8501",
+                scope="user-library-read user-top-read playlist-read-private user-read-recently-played",
+                cache_path=".spotify_cache",
+                show_dialog=True
+            ))
     
     def get_user_profile(self):
         return self.sp.current_user()
@@ -33,7 +43,7 @@ class SpotifyClient:
         """
         all_tracks = []
         offset = 0
-        batch_size = min(limit, 50)  # Spotify permite máximo 50 por request
+        batch_size = min(limit, 50)
         
         while True:
             results = self.sp.current_user_saved_tracks(limit=batch_size, offset=offset)
@@ -43,13 +53,11 @@ class SpotifyClient:
             
             all_tracks.extend(results['items'])
             
-            # Si obtuvimos menos canciones de las solicitadas, ya no hay más
             if len(results['items']) < batch_size:
                 break
                 
             offset += batch_size
             
-            # Límite de seguridad opcional (por ejemplo, máximo 500 canciones)
             if len(all_tracks) >= 500:
                 break
         

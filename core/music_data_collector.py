@@ -3,8 +3,13 @@ import json
 import time
 
 class MusicDataCollector:
-    def __init__(self):
-        self.spotify_client = SpotifyClient()
+    def __init__(self, token_info=None):
+        """
+        Inicializa el recolector con el token de autenticación del usuario
+        Args:
+            token_info: Diccionario con la información del token OAuth
+        """
+        self.spotify_client = SpotifyClient(token_info)
         self.collected_data = {
             'user_profile': {},
             'top_artists': [],
@@ -70,7 +75,6 @@ class MusicDataCollector:
             except:
                 pass
     
-    # Para tener la información en un json y acceder a ella sin necesidad de buscar la base de datos
     def save_data_to_file(self, filename="user_music_data.json"):
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(self.collected_data, f, indent=2, ensure_ascii=False)

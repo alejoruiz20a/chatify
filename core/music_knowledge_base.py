@@ -38,14 +38,14 @@ class MusicKnowledgeBase:
         
         profile = music_data.get('user_profile', {})
         profile_summary = self._create_profile_summary(music_data)
-        profile_summary = f"Nombre de Usuario: {profile.get('display_name', 'Usuario')}\n{profile_summary}"
+        profile_summary = f"Username: {profile.get('display_name', 'User')}\n{profile_summary}"
         documents.append(Document(
             page_content=profile_summary,
             metadata={"type": "user_profile"}
         ))
         
         for artist_id, artist_info in music_data.get('artists_info', {}).items():
-            content = f"ARTISTA: {artist_info['name']}\nGéneros: {', '.join(artist_info.get('genres', []))}\nPopularidad: {artist_info.get('popularity', 0)}"
+            content = f"ARTIST: {artist_info['name']}\nGenres: {', '.join(artist_info.get('genres', []))}\nPopularity: {artist_info.get('popularity', 0)}"
             documents.append(Document(
                 page_content=content,
                 metadata={"type": "artist", "artist_name": artist_info['name']}
@@ -54,7 +54,7 @@ class MusicKnowledgeBase:
         print(music_data.get('saved_tracks', []))
         for track in music_data.get('saved_tracks', []):
             artists_str = ', '.join(track.get('artists', []))
-            content = f"CANCIÓN GUARDADA: {track['name']}\nArtistas: {artists_str}\nÁlbum: {track['album']}"
+            content = f"SAVED SONG: {track['name']}\nArtists: {artists_str}\nAlbum: {track['album']}"
             documents.append(Document(
                 page_content=content,
                 metadata={
@@ -66,7 +66,7 @@ class MusicKnowledgeBase:
 
         for track in music_data.get('top_tracks', []):
             artists_str = ', '.join(track.get('artists', []))
-            content = f"CANCIÓN FAVORITA (TOP): {track['name']}\nArtistas: {artists_str}\nÁlbum: {track['album']}\nPopularidad: {track.get('popularity', 0)}"
+            content = f"FAVORITE SONG (TOP): {track['name']}\nArtists: {artists_str}\nAlbum: {track['album']}\nPopularity: {track.get('popularity', 0)}"
             documents.append(Document(
                 page_content=content,
                 metadata={
@@ -89,9 +89,9 @@ class MusicKnowledgeBase:
         top_artists = ', '.join([a['name'] for a in music_data.get('top_artists', [])[:10]])
         genres = ', '.join([g for g, _ in top_genres])
         
-        return f"""Artistas favoritos: {top_artists}
-            Géneros principales: {genres}
-            Total canciones guardadas: {len(music_data.get('saved_tracks', []))}
+        return f"""Favorite artists: {top_artists}
+            Main genres: {genres}
+            Total saved songs: {len(music_data.get('saved_tracks', []))}
             Total playlists: {len(music_data.get('playlists', []))}"""
     
     def get_retriever(self, k=5):

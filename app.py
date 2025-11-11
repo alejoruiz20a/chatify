@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from core.music_data_collector import MusicDataCollector
 from core.music_knowledge_base import MusicKnowledgeBase
 from core.music_advisor import MusicAdvisor
+from core.auth_manager import AuthManager
 import time
 
 load_dotenv()
@@ -14,6 +15,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Initialize session states
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "token_info" not in st.session_state:
+    st.session_state.token_info = None
 if "music_data" not in st.session_state:
     st.session_state.music_data = None
 if "knowledge_base" not in st.session_state:
@@ -25,91 +31,177 @@ if "messages" not in st.session_state:
 if "data_loaded" not in st.session_state:
     st.session_state.data_loaded = False
 
+# Initialize authentication manager
+auth_manager = AuthManager()
+
+def handle_auth_callback():
+    """Handles Spotify authentication callback"""
+    query_params = st.query_params
+    
+    if "code" in query_params:
+        code = query_params["code"]
+        token_info = auth_manager.get_access_token(code)
+        
+        if token_info:
+            st.session_state.token_info = token_info
+            st.session_state.authenticated = True
+            
+            # Clear URL parameters
+            st.query_params.clear()
+            st.rerun()
+
 def initialize_system():
+    """Initializes system with authenticated user data"""
     try:
-        with st.status("Inicializando Chatify...", expanded=True) as status:
-            status.update(label="Recolectando tu perfil musical...")
-            collector = MusicDataCollector()
+        with st.status("Initializing Chatify...", expanded=True) as status:
+            status.update(label="Collecting your music profile...")
+            collector = MusicDataCollector(st.session_state.token_info)
             music_data = collector.collect_all_data()
             st.session_state.music_data = music_data
             
-            status.update(label="Creando base de conocimiento...")
+            status.update(label="Creating knowledge base...")
             knowledge_base = MusicKnowledgeBase()
             knowledge_base.initialize_knowledge_base(music_data)
             st.session_state.knowledge_base = knowledge_base
 
-            status.update(label="Guardando datos localmente...")
+            status.update(label="Saving data locally...")
             collector.save_data_to_file("user_music_data.json")
             
-            status.update(label="Configurando tu Chatify...")
+            status.update(label="Setting up your Chatify...")
             advisor = MusicAdvisor(knowledge_base, music_data)
             st.session_state.advisor = advisor
             
-            status.update(label="¡Sistema listo!", state="complete")
+            status.update(label="System ready!", state="complete")
         
         st.session_state.data_loaded = True
-        st.success("¡Tu Chatify está listo! Puedes empezar a hacer preguntas.")
+        st.success("Your Chatify is ready! You can start asking questions.")
         
     except Exception as e:
-        st.error(f"Error inicializando el sistema: {e}")
+        st.error(f"Error initializing system: {e}")
 
-with st.sidebar:
-    st.title(" Chatify")
-    st.markdown("---")
+def logout():
+    """Logs out the user"""
+    st.session_state.authenticated = False
+    st.session_state.token_info = None
+    st.session_state.music_data = None
+    st.session_state.knowledge_base = None
+    st.session_state.advisor = None
+    st.session_state.messages = []
+    st.session_state.data_loaded = False
+    st.rerun()
+
+# Handle authentication callback
+handle_auth_callback()
+
+# Login screen
+if not st.session_state.authenticated:
+    st.title("Welcome to Chatify")
+    st.markdown("""
+    ### Your intelligent personal music assistant
     
-    st.subheader("Configuración")
+    Chatify analyzes your Spotify profile and helps you:
+    - Discover new music based on your taste
+    - Understand your musical patterns
+    - Chat about your favorite artists and songs
+    - Get personalized recommendations
     
-    if not st.session_state.data_loaded:
-        if st.button("Inicializar Mi Chatify", use_container_width=True, type="primary"):
-            initialize_system()
-    else:
-        st.success("Sistema listo")
+    ---
+    """)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.info("**Sign in with your Spotify account to get started**")
         
-        if st.session_state.music_data:
-            st.subheader("Tu Perfil Musical")
-            user_name = st.session_state.music_data['user_profile'].get('display_name', 'Usuario')
-            st.write(f"**{user_name}**")
+        auth_url = auth_manager.get_auth_url()
+        
+        st.markdown(f"""
+        <a href="{auth_url}" target="_self">
+            <button style="
+                background-color: #1DB954;
+                color: white;
+                padding: 15px 32px;
+                text-align: center;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 16px;
+                margin: 4px 2px;
+                cursor: pointer;
+                border: none;
+                border-radius: 50px;
+                font-weight: bold;
+                width: 100%;
+            ">
+                Sign in with Spotify
+            </button>
+        </a>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        st.caption("Your data is secure. We only access read-only information from your music profile.")
+
+else:
+    # Authenticated user - Main interface
+    with st.sidebar:
+        st.title("Chatify")
+        st.markdown("---")
+        
+        st.subheader("Settings")
+        
+        if not st.session_state.data_loaded:
+            if st.button("Initialize My Chatify", use_container_width=True, type="primary"):
+                initialize_system()
+        else:
+            st.success("System ready")
             
-            top_artists = st.session_state.music_data.get('top_artists', [])[:3]
-            if top_artists:
-                st.write("**Artistas Top:**")
-                for artist in top_artists:
-                    st.write(f"- {artist['name']}")
+            if st.session_state.music_data:
+                st.subheader("Your Music Profile")
+                user_name = st.session_state.music_data['user_profile'].get('display_name', 'User')
+                st.write(f"**{user_name}**")
+                
+                top_artists = st.session_state.music_data.get('top_artists', [])[:3]
+                if top_artists:
+                    st.write("**Top Artists:**")
+                    for artist in top_artists:
+                        st.write(f"- {artist['name']}")
+        
+        st.markdown("---")
+        if st.button("Sign Out", use_container_width=True, type="secondary"):
+            logout()
 
-st.title(" Tu Chatify Personalizado")
-st.markdown("Habla con tu asistente de música inteligente que conoce tus gustos y te ayuda a descubrir nueva música.")
+    st.title("Your Personalized Chatify")
+    st.markdown("Chat with your intelligent music assistant that knows your taste and helps you discover new music.")
 
-if st.session_state.data_loaded:
-    col1, = st.columns(1)  
-    
-    with col1:
-        if st.button("Analizar Mi Perfil", use_container_width=True, type="secondary"):
-            with st.spinner("Analizando tu perfil musical..."):
-                analysis = st.session_state.advisor.analyze_profile()
-                st.session_state.messages.append({"role": "user", "content": "Analiza mi perfil musical en detalle"})
-                st.session_state.messages.append({"role": "assistant", "content": analysis})
-                st.rerun()
+    if st.session_state.data_loaded:
+        col1, = st.columns(1)  
+        
+        with col1:
+            if st.button("Analyze My Profile", use_container_width=True, type="secondary"):
+                with st.spinner("Analyzing your music profile..."):
+                    analysis = st.session_state.advisor.analyze_profile()
+                    st.session_state.messages.append({"role": "user", "content": "Analyze my music profile in detail"})
+                    st.session_state.messages.append({"role": "assistant", "content": analysis})
+                    st.rerun()
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-if prompt := st.chat_input("Pregúntale algo a tu Chatify..."):
-    if not st.session_state.data_loaded:
-        st.error("Por favor, inicializa el sistema primero desde la barra lateral.")
-        st.stop()
-    
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    if prompt := st.chat_input("Ask your Chatify something..."):
+        if not st.session_state.data_loaded:
+            st.error("Please initialize the system first from the sidebar.")
+            st.stop()
+        
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    with st.chat_message("assistant"):
-        with st.spinner(" Tu consejero está pensando..."):
-            try:
-                response = st.session_state.advisor.ask(prompt)
-                st.markdown(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
-            except Exception as e:
-                error_msg = f"Lo siento, hubo un error: {str(e)}"
-                st.markdown(error_msg)
-                st.session_state.messages.append({"role": "assistant", "content": error_msg})
+        with st.chat_message("assistant"):
+            with st.spinner("Your advisor is thinking..."):
+                try:
+                    response = st.session_state.advisor.ask(prompt)
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                except Exception as e:
+                    error_msg = f"Sorry, there was an error: {str(e)}"
+                    st.markdown(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})

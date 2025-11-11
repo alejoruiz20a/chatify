@@ -1,5 +1,6 @@
 .env
 .spotify_cache
+venv/
 user_music_data.json
 chroma_music_db/
 core/__pycache__/
