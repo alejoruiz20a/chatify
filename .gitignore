@@ -1,4 +1,4 @@
 .env
 .spotify_cache
 user_music_data.json
-chroma_music_db
+/chroma_music_db
