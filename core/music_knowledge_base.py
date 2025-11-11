@@ -2,6 +2,7 @@ from langchain_community.vectorstores import Weaviate
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from collections import Counter
+import weaviate
 import os
 
 class MusicKnowledgeBase:
@@ -14,7 +15,6 @@ class MusicKnowledgeBase:
         
     def _get_weaviate_client(self):
         """Get Weaviate client using the community integration"""
-        import weaviate
         
         client = weaviate.Client(
             url=os.getenv("WEAVIATE_URL"),

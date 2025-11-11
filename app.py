@@ -5,7 +5,6 @@ from core.music_data_collector import MusicDataCollector
 from core.music_knowledge_base import MusicKnowledgeBase
 from core.music_advisor import MusicAdvisor
 from core.auth_manager import AuthManager
-import time
 
 load_dotenv()
 
