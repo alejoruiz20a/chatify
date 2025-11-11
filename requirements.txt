@@ -27,3 +27,5 @@ beautifulsoup4==4.14.2
 # HTTP Requests
 requests==2.32.5
 httpx==0.28.1
+
+weaviate-client
