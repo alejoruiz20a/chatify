@@ -4,41 +4,50 @@ from collections import Counter
 import os
 
 class MusicAdvisor:
-    def __init__(self, knowledge_base, music_data):
+    def __init__(self, knowledge_base, music_data, token_info=None):
         self.knowledge_base = knowledge_base
         self.music_data = music_data
-        self.spotify_client = SpotifyClient()
+        
+        # Initialize SpotifyClient with token_info
+        if token_info:
+            self.spotify_client = SpotifyClient(token_info)
+        else:
+            self.spotify_client = None  # Or handle this case as needed
         
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
             google_api_key=os.getenv("GOOGLE_API_KEY"),
-            temperature=0.5
+            temperature=0.4
         )
         
         self.conversation_history = []
     
     def ask(self, question):
+        # If we need to use Spotify API in responses, check if client is available
+        if not self.spotify_client:
+            # You can choose to skip Spotify functionality or handle differently
+            pass
+            
         relevant_info = self._get_relevant_info(question)
         user_profile = self._create_user_profile()
         
         conversation_context = self._build_conversation_context()
         
-        # AUGMENTATION with history
         prompt = f"""You are a music advisor named Chatify. Your knowledge base will be from a Spotify user with this data:
 
-            {user_profile}
+{user_profile}
 
-            Relevant information:
-            {relevant_info}
+Relevant information:
+{relevant_info}
 
-            Conversation context:
-            {conversation_context}
+Conversation context:
+{conversation_context}
 
-            Current question: {question}
+Current question: {question}
 
-            Respond in the language the user speaks to you, directly and helpfully, with a cheerful and charismatic touch. Maintain context from previous conversation."""
+Respond in the language the user speaks to you, directly and helpfully, with a cheerful and charismatic touch. Maintain context from previous conversation."""
         
-        response = self.llm.invoke(prompt) # GENERATION
+        response = self.llm.invoke(prompt)
 
         self._add_to_conversation(question, response.content)
         
@@ -85,8 +94,8 @@ class MusicAdvisor:
         genres = ', '.join([f"{g} ({c})" for g, c in top_genres])
 
         return f"""Name: {user_name}
-            Favorite artists: {top_artists}
-            Genres: {genres}"""
+Favorite artists: {top_artists}
+Genres: {genres}"""
     
     def _get_relevant_info(self, question):
         # RETRIEVAL
@@ -106,14 +115,14 @@ class MusicAdvisor:
         
         prompt = f"""Analyze this music profile:
 
-            {user_profile}
+{user_profile}
 
-            Provide an analysis that includes:
-            - Patterns in musical taste
-            - Artists that define their style
-            - Suggestions for exploration
+Provide an analysis that includes:
+- Patterns in musical taste
+- Artists that define their style
+- Suggestions for exploration
 
-            Respond in the language the user speaks to you, directly and helpfully, with a cheerful and charismatic touch."""
+Respond in the language the user speaks to you, directly and helpfully, with a cheerful and charismatic touch."""
         
         print(prompt)
                 

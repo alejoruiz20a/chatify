@@ -8,38 +8,33 @@ load_dotenv()
 class SpotifyClient:
     def __init__(self, token_info=None):
         """
-        Inicializa el cliente de Spotify con un token de usuario
+        Initialize Spotify client with user token
         Args:
-            token_info: Diccionario con la información del token OAuth
+            token_info: Dictionary with OAuth token information
         """
-        if token_info:
-            # Cliente autenticado con token de usuario
-            self.sp = spotipy.Spotify(auth=token_info['access_token'])
-        else:
-            # Fallback al método anterior (para desarrollo)
-            self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-                client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-                client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-                redirect_uri="http://localhost:8501",
-                scope="user-library-read user-top-read playlist-read-private user-read-recently-played",
-                cache_path=".spotify_cache",
-                show_dialog=True
-            ))
+        if not token_info:
+            raise ValueError("token_info is required for SpotifyClient")
+        
+        # Always use the token from AuthManager
+        self.sp = spotipy.Spotify(auth=token_info['access_token'])
     
     def get_user_profile(self):
+        """Get current user's profile information"""
         return self.sp.current_user()
     
     def get_top_artists(self, limit=20, time_range='medium_term'):
+        """Get user's top artists"""
         return self.sp.current_user_top_artists(limit=min(limit, 50), time_range=time_range)
     
     def get_top_tracks(self, limit=20, time_range='medium_term'):
+        """Get user's top tracks"""
         return self.sp.current_user_top_tracks(limit=min(limit, 50), time_range=time_range)
     
     def get_saved_tracks(self, limit=50):
         """
-        Obtiene todas las canciones guardadas sin duplicados
+        Get all saved tracks without duplicates
         Args:
-            limit: Máximo de canciones por request (máx 50 por limitación de Spotify)
+            limit: Maximum tracks per request (max 50 due to Spotify limitations)
         """
         all_tracks = []
         offset = 0
@@ -64,12 +59,15 @@ class SpotifyClient:
         return {'items': all_tracks}
     
     def get_user_playlists(self, limit=50):
+        """Get user's playlists"""
         return self.sp.current_user_playlists(limit=limit)
     
     def get_recently_played(self, limit=50):
+        """Get user's recently played tracks"""
         return self.sp.current_user_recently_played(limit=limit)
     
     def get_recommendations(self, seed_artists=None, seed_tracks=None, limit=20):
+        """Get track recommendations based on seeds"""
         return self.sp.recommendations(
             seed_artists=seed_artists or [],
             seed_tracks=seed_tracks or [],
@@ -77,9 +75,11 @@ class SpotifyClient:
         )
     
     def get_artist_info(self, artist_id):
+        """Get detailed information for a specific artist"""
         return self.sp.artist(artist_id)
 
 def extract_artist_info(artist_data):
+    """Extract relevant artist information from Spotify API response"""
     return {
         'id': artist_data['id'],
         'name': artist_data['name'],
@@ -89,6 +89,7 @@ def extract_artist_info(artist_data):
     }
 
 def extract_track_info(track_data):
+    """Extract relevant track information from Spotify API response"""
     return {
         'id': track_data['id'],
         'name': track_data['name'],

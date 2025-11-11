@@ -5,3 +5,4 @@ venv/
 user_music_data.json
 chroma_music_db/
 core/__pycache__/
+user_token.json

@@ -5,9 +5,9 @@ import time
 class MusicDataCollector:
     def __init__(self, token_info=None):
         """
-        Inicializa el recolector con el token de autenticación del usuario
+        Initializes the collector using user token
         Args:
-            token_info: Diccionario con la información del token OAuth
+            token_info: Dictionary with OAuth token information
         """
         self.spotify_client = SpotifyClient(token_info)
         self.collected_data = {

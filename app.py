@@ -46,9 +46,39 @@ def handle_auth_callback():
             st.session_state.token_info = token_info
             st.session_state.authenticated = True
             
-            # Clear URL parameters
+            try:
+                import json
+                with open("user_token.json", "w") as f:
+                    json.dump(token_info, f)
+            except Exception as e:
+                pass
+
             st.query_params.clear()
             st.rerun()
+
+# Handle authentication callback
+handle_auth_callback()
+
+# NOW load token from file ONLY if not already authenticated
+if not st.session_state.authenticated and st.session_state.token_info is None:
+    try:
+        import json
+        import os
+        if os.path.exists("user_token.json"):
+            with open("user_token.json", "r") as f:
+                st.session_state.token_info = json.load(f)
+                st.session_state.authenticated = True
+                # Optional: small rerun to refresh the state
+                st.rerun()
+    except FileNotFoundError:
+        pass  # No saved token, stay logged out
+    except Exception as e:
+        st.sidebar.error(f"Error loading saved token: {e}")
+        # If token is corrupted, delete it
+        try:
+            os.remove("user_token.json")
+        except:
+            pass
 
 def initialize_system():
     """Initializes system with authenticated user data"""
@@ -59,8 +89,11 @@ def initialize_system():
             music_data = collector.collect_all_data()
             st.session_state.music_data = music_data
             
+            # Get user ID for multi-tenancy
+            user_id = music_data.get('user_profile', {}).get('id', 'unknown_user')
+            
             status.update(label="Creating knowledge base...")
-            knowledge_base = MusicKnowledgeBase()
+            knowledge_base = MusicKnowledgeBase(user_id=user_id)
             knowledge_base.initialize_knowledge_base(music_data)
             st.session_state.knowledge_base = knowledge_base
 
@@ -68,7 +101,8 @@ def initialize_system():
             collector.save_data_to_file("user_music_data.json")
             
             status.update(label="Setting up your Chatify...")
-            advisor = MusicAdvisor(knowledge_base, music_data)
+            # 👇 Pasa el token_info al MusicAdvisor
+            advisor = MusicAdvisor(knowledge_base, music_data, st.session_state.token_info)
             st.session_state.advisor = advisor
             
             status.update(label="System ready!", state="complete")
@@ -78,9 +112,24 @@ def initialize_system():
         
     except Exception as e:
         st.error(f"Error initializing system: {e}")
+        import traceback
+        st.error(f"Detailed error: {traceback.format_exc()}")
 
 def logout():
-    """Logs out the user"""
+    """Logs out the user and clears all session data"""
+    # Remove token file first
+    try:
+        import os
+        if os.path.exists("user_token.json"):
+            os.remove("user_token.json")
+    except Exception as e:
+        print(f"Error removing token file: {e}")
+    
+    # Clear ALL session state
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    
+    # Reinitialize basic session states
     st.session_state.authenticated = False
     st.session_state.token_info = None
     st.session_state.music_data = None
@@ -88,10 +137,8 @@ def logout():
     st.session_state.advisor = None
     st.session_state.messages = []
     st.session_state.data_loaded = False
+    
     st.rerun()
-
-# Handle authentication callback
-handle_auth_callback()
 
 # Login screen
 if not st.session_state.authenticated:
