@@ -1,5 +1,6 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
 from .spotify_client import SpotifyClient
+from .music_data_collector import MusicDataCollector
 from collections import Counter
 import os
 
@@ -7,6 +8,7 @@ class MusicAdvisor:
     def __init__(self, knowledge_base, music_data, token_info=None):
         self.knowledge_base = knowledge_base
         self.music_data = music_data
+        self.token_info = token_info
         
         # Initialize SpotifyClient with token_info
         if token_info:
@@ -45,7 +47,10 @@ Conversation context:
 
 Current question: {question}
 
-Respond in the language the user speaks to you, directly and helpfully, with a cheerful and charismatic touch. Maintain context from previous conversation."""
+Respond in the language the user speaks to you, directly and helpfully, with a cheerful and charismatic touch. Maintain context from previous conversation.
+
+Note: If the knowledge base was just auto-initialized, acknowledge this to the user in a friendly way.
+"""
         
         response = self.llm.invoke(prompt)
 
@@ -90,25 +95,112 @@ Respond in the language the user speaks to you, directly and helpfully, with a c
         genre_counter = Counter(all_genres)
         top_genres = genre_counter.most_common(5)
         
-        top_artists = ', '.join([a['name'] for a in profile.get('top_artists', [])[:5]])
         genres = ', '.join([f"{g} ({c})" for g, c in top_genres])
 
         return f"""Name: {user_name}
-Favorite artists: {top_artists}
-Genres: {genres}"""
+            Genres: {genres}"""
     
     def _get_relevant_info(self, question):
         # RETRIEVAL
-        results = self.knowledge_base.search(question, k=50)
-        
-        if not results:
-            return "No specific information"
-        
-        info_text = ""
-        for doc in results:
-            info_text += f"\n{doc.page_content}\n"
-        
-        return info_text
+        try:
+            results = self.knowledge_base.search(question, k=50)
+            
+            if not results:
+                return "No specific information"
+            
+            info_text = ""
+            for doc in results:
+                info_text += f"\n{doc.page_content}\n"
+            
+            return info_text
+        except ValueError as e:
+            if "KNOWLEDGE_BASE_NEEDS_UPDATE" in str(e):
+                # Try to auto-initialize the knowledge base
+                if self._auto_initialize_knowledge_base():
+                    # Retry the search after initialization
+                    try:
+                        results = self.knowledge_base.search(question, k=50)
+                        if not results:
+                            return "No specific information"
+                        info_text = ""
+                        for doc in results:
+                            info_text += f"\n{doc.page_content}\n"
+                        return info_text
+                    except Exception as retry_error:
+                        return f"ERROR: Knowledge base was recreated but search still failed: {str(retry_error)}"
+                else:
+                    return "ERROR: Knowledge base collection not found and could not be auto-initialized. Please try updating your Knowledge Base manually."
+        except Exception as e:
+            # For other errors, return a generic message
+            return f"ERROR: Unable to access knowledge base: {str(e)}"
+    
+    def _auto_initialize_knowledge_base(self):
+        """Automatically initialize the knowledge base when it's missing"""
+        try:
+            if not self.token_info:
+                print("No token info available for auto-initialization")
+                return False
+            
+            # Get user ID from existing music data or fetch it
+            user_id = self.music_data.get('user_profile', {}).get('id') if self.music_data else None
+            
+            if not user_id:
+                # Need to get user ID first
+                from .music_data_collector import MusicDataCollector
+                collector = MusicDataCollector(self.token_info)
+                user_id = collector.get_user_id()
+                if user_id == 'unknown_user':
+                    print("Could not get user ID for auto-initialization")
+                    return False
+            
+            # Check if we have music data, if not, collect it
+            if not self.music_data or not self.music_data.get('user_profile'):
+                print("Collecting music data for auto-initialization...")
+                collector = MusicDataCollector(self.token_info)
+                self.music_data = collector.collect_all_data()
+                collector.save_data_to_file("user_music_data.json")
+            
+            # Initialize the knowledge base
+            print(f"Auto-initializing knowledge base for user {user_id}...")
+            
+            # Update user_id and collection_name BEFORE checking/creating
+            self.knowledge_base.user_id = user_id
+            self.knowledge_base.collection_name = f"MusicProfile_{user_id.replace('-', '_')}"
+            
+            # Clear any stale cache for this collection
+            self.knowledge_base._clear_cache()
+            
+            print(f"Collection name: {self.knowledge_base.collection_name}")
+            print(f"Checking if collection exists (without cache)...")
+            
+            # Check without cache first to see if collection really exists
+            client = self.knowledge_base._get_weaviate_client()
+            collection_exists = client.collections.exists(self.knowledge_base.collection_name)
+            
+            if not collection_exists:
+                print(f"Collection does not exist, creating it...")
+                # Create the collection directly
+                self.knowledge_base._create_collection(client)
+                
+                # Create documents and add them
+                documents = self.knowledge_base._create_documents(self.music_data)
+                self.knowledge_base._add_documents_to_collection(client, documents)
+                
+                # Update cache after successful creation
+                self.knowledge_base._update_cache()
+                print("Knowledge base auto-initialized successfully!")
+            else:
+                print(f"Collection already exists, verifying it's properly set up...")
+                # Even if it exists, make sure it has the right data
+                # For now, just update cache
+                self.knowledge_base._update_cache()
+            
+            return True
+        except Exception as e:
+            print(f"Error auto-initializing knowledge base: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
     
     def analyze_profile(self):
         user_profile = self._create_user_profile()

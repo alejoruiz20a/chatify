@@ -20,6 +20,18 @@ class MusicDataCollector:
             'artists_info': {}
         }
     
+    def get_user_id(self):
+        """
+        Get only the user ID quickly without collecting all data
+        Returns: user_id string
+        """
+        try:
+            profile = self.spotify_client.get_user_profile()
+            return profile.get('id', 'unknown_user')
+        except Exception as e:
+            print(f"Error getting user ID: {e}")
+            return 'unknown_user'
+    
     def collect_all_data(self):
         """Collect all music data from Spotify API"""
         # Get user profile FIRST (before cleaning)

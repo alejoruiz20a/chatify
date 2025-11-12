@@ -29,6 +29,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "data_loaded" not in st.session_state:
     st.session_state.data_loaded = False
+if "initializing" not in st.session_state:
+    st.session_state.initializing = False
 
 # Initialize authentication manager
 auth_manager = AuthManager()
@@ -47,7 +49,7 @@ def handle_auth_callback():
             
             try:
                 import json
-                with open("user_token.json", "w") as f:
+                with open("user_token.json", "w", encoding='utf-8') as f:
                     json.dump(token_info, f)
             except Exception as e:
                 pass
@@ -64,7 +66,7 @@ if not st.session_state.authenticated and st.session_state.token_info is None:
         import json
         import os
         if os.path.exists("user_token.json"):
-            with open("user_token.json", "r") as f:
+            with open("user_token.json", "r", encoding='utf-8') as f:
                 st.session_state.token_info = json.load(f)
                 st.session_state.authenticated = True
                 st.rerun()
@@ -81,32 +83,57 @@ def initialize_system():
     """Initializes system with authenticated user data"""
     try:
         with st.status("Initializing Chatify...", expanded=True) as status:
-            status.update(label="Collecting your music profile...")
-            collector = MusicDataCollector(st.session_state.token_info)
-            music_data = collector.collect_all_data()
-            st.session_state.music_data = music_data
-            
-            # Get user ID for multi-tenancy - NOW it should work!
-            user_id = music_data.get('user_profile', {}).get('id', 'unknown_user')
+            # First, get user ID quickly (single API call)
+            status.update(label="Checking your profile...")
+            user_id = auth_manager.get_user_id(st.session_state.token_info)
             print(f"User ID: {user_id}")  # Debug
             
-            status.update(label="Creating knowledge base...")
+            # Check if knowledge base already exists for this user
+            status.update(label="Checking knowledge base...")
             knowledge_base = MusicKnowledgeBase(user_id=user_id)
             
-            # Check if collection exists
+            # Check if collection exists (uses cache, very fast)
             if knowledge_base.collection_exists():
-                status.update(label="Knowledge base already exists, loading...")
+                status.update(label="Knowledge base found! Loading your data...")
+                # Collection exists, try to load existing data from file
+                try:
+                    import json
+                    if os.path.exists("user_music_data.json"):
+                        with open("user_music_data.json", "r", encoding='utf-8') as f:
+                            music_data = json.load(f)
+                            # Verify it's the same user
+                            if music_data.get('user_profile', {}).get('id') == user_id:
+                                st.session_state.music_data = music_data
+                                status.update(label="Data loaded from cache!")
+                            else:
+                                # Different user, need to collect fresh data
+                                raise FileNotFoundError("User mismatch")
+                    else:
+                        raise FileNotFoundError("No cached data")
+                except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
+                    # No cached data, different user, or encoding error - collect fresh data
+                    status.update(label="Collecting your music profile...")
+                    collector = MusicDataCollector(st.session_state.token_info)
+                    music_data = collector.collect_all_data()
+                    st.session_state.music_data = music_data
+                    collector.save_data_to_file("user_music_data.json")
             else:
-                status.update(label="Creating new knowledge base...")
+                # Collection doesn't exist, need to collect all data
+                status.update(label="Collecting your music profile...")
+                collector = MusicDataCollector(st.session_state.token_info)
+                music_data = collector.collect_all_data()
+                st.session_state.music_data = music_data
+                
+                status.update(label="Creating knowledge base...")
+                knowledge_base.initialize_knowledge_base(music_data, force_recreate=False)
+                
+                status.update(label="Saving data locally...")
+                collector.save_data_to_file("user_music_data.json")
             
-            knowledge_base.initialize_knowledge_base(music_data, force_recreate=False)
             st.session_state.knowledge_base = knowledge_base
-
-            status.update(label="Saving data locally...")
-            collector.save_data_to_file("user_music_data.json")
             
             status.update(label="Setting up your Chatify...")
-            advisor = MusicAdvisor(knowledge_base, music_data, st.session_state.token_info)
+            advisor = MusicAdvisor(knowledge_base, st.session_state.music_data, st.session_state.token_info)
             st.session_state.advisor = advisor
             
             status.update(label="System ready!", state="complete")
@@ -115,6 +142,7 @@ def initialize_system():
         st.success("Your Chatify is ready! You can start asking questions.")
         
     except Exception as e:
+        st.session_state.initializing = False
         st.error(f"Error initializing system: {e}")
         import traceback
         st.error(f"Detailed error: {traceback.format_exc()}")
@@ -175,6 +203,7 @@ def logout():
     st.session_state.advisor = None
     st.session_state.messages = []
     st.session_state.data_loaded = False
+    st.session_state.initializing = False
     
     st.rerun()
 
@@ -212,16 +241,20 @@ if not st.session_state.authenticated:
 
 else:
     # Authenticated user - Main interface
+    # Auto-initialize system if not already loaded
+    if not st.session_state.data_loaded and not st.session_state.initializing:
+        st.session_state.initializing = True
+        initialize_system()
+        st.session_state.initializing = False
+        st.rerun()
+    
     with st.sidebar:
         st.title("Chatify")
         st.markdown("---")
         
         st.subheader("Settings")
         
-        if not st.session_state.data_loaded:
-            if st.button("Initialize My Chatify", use_container_width=True, type="primary"):
-                initialize_system()
-        else:
+        if st.session_state.data_loaded:
             st.success("System ready")
             
             if st.session_state.music_data:
@@ -229,7 +262,6 @@ else:
                 user_name = st.session_state.music_data['user_profile'].get('display_name', 'User')
                 user_id = st.session_state.music_data['user_profile'].get('id', 'unknown')
                 st.write(f"**{user_name}**")
-                st.caption(f"ID: {user_id[:8]}...")
                 
                 top_artists = st.session_state.music_data.get('top_artists', [])[:3]
                 if top_artists:
@@ -268,7 +300,7 @@ else:
 
     if prompt := st.chat_input("Ask your Chatify something..."):
         if not st.session_state.data_loaded:
-            st.error("Please initialize the system first from the sidebar.")
+            st.error("System is initializing, please wait...")
             st.stop()
         
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -279,6 +311,11 @@ else:
             with st.spinner("Your advisor is thinking..."):
                 try:
                     response = st.session_state.advisor.ask(prompt)
+                    # Update session state in case music_data was updated during auto-initialization
+                    if st.session_state.advisor.music_data:
+                        st.session_state.music_data = st.session_state.advisor.music_data
+                    if st.session_state.advisor.knowledge_base:
+                        st.session_state.knowledge_base = st.session_state.advisor.knowledge_base
                     st.markdown(response)
                     st.session_state.messages.append({"role": "assistant", "content": response})
                 except Exception as e:

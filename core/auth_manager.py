@@ -70,3 +70,14 @@ class AuthManager:
         if token_info:
             return spotipy.Spotify(auth=token_info['access_token'])
         return None
+    
+    def get_user_id(self, token_info):
+        """Get user ID quickly with a single API call"""
+        try:
+            sp = self.get_spotify_client(token_info)
+            if sp:
+                profile = sp.current_user()
+                return profile.get('id', 'unknown_user')
+        except Exception as e:
+            print(f"Error getting user ID: {e}")
+        return 'unknown_user'

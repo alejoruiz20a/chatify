@@ -24,28 +24,33 @@ class MusicKnowledgeBase:
             )
         return self.client
     
-    def collection_exists(self):
+    def collection_exists(self, use_cache=True):
         """Check if user's collection already exists (with caching)"""
-        # Check local cache first (fastest)
         cache_file = f".weaviate_cache_{self.user_id.replace('-', '_')}.txt"
-        if os.path.exists(cache_file):
+        
+        # Check local cache first (fastest)
+        if use_cache and os.path.exists(cache_file):
             try:
                 with open(cache_file, 'r') as f:
                     cached_name = f.read().strip()
                     if cached_name == self.collection_name:
+                        print(f"[CACHE HIT] Collection {self.collection_name} found in cache")
                         return True
-            except:
-                pass
+            except Exception as e:
+                print(f"Error reading cache: {e}")
         
         # If not in cache, check Weaviate
+        print(f"[CACHE MISS] Querying Weaviate for collection {self.collection_name}")
         try:
             client = self._get_weaviate_client()
             exists = client.collections.exists(self.collection_name)
             
             # Cache the result if collection exists
             if exists:
-                with open(cache_file, 'w') as f:
-                    f.write(self.collection_name)
+                self._update_cache()
+            else:
+                # Clear cache if collection doesn't exist
+                self._clear_cache()
             
             return exists
         except Exception as e:
@@ -62,13 +67,15 @@ class MusicKnowledgeBase:
         client = self._get_weaviate_client()
         
         # If force_recreate, delete existing collection and clear cache
-        if force_recreate and self.collection_exists():
-            print(f"Deleting existing collection: {self.collection_name}")
-            client.collections.delete(self.collection_name)
-            self._clear_cache()
+        if force_recreate:
+            # Don't use cache when force recreating
+            if self.collection_exists(use_cache=False):
+                print(f"Deleting existing collection: {self.collection_name}")
+                client.collections.delete(self.collection_name)
+                self._clear_cache()
         
-        # Check if collection exists
-        if not self.collection_exists():
+        # Check if collection exists (use cache for speed)
+        if not self.collection_exists(use_cache=True):
             print(f"Creating new collection: {self.collection_name}")
             self._create_collection(client)
             
@@ -76,7 +83,7 @@ class MusicKnowledgeBase:
             documents = self._create_documents(music_data)
             self._add_documents_to_collection(client, documents)
             
-            # Update cache
+            # Update cache after successful creation
             self._update_cache()
         else:
             print(f"Collection {self.collection_name} already exists. Skipping initialization.")
@@ -252,45 +259,54 @@ Total playlists: {len(music_data.get('playlists', []))}"""
             query: Search query string
             k: Number of results to return
         Returns:
-            List of Document objects
+            List of Document objects, or None if there's an error that requires user action
         """
-        client = self._get_weaviate_client()
-        
-        if not self.collection_exists():
-            return []
-        
-        collection = client.collections.get(self.collection_name)
-        
-        # Generate query embedding
-        query_vector = self.embedding_model.embed_query(query)
-        
-        # Perform vector search
-        response = collection.query.near_vector(
-            near_vector=query_vector,
-            limit=k,
-            return_metadata=MetadataQuery(distance=True)
-        )
-        
-        # Convert results to Document objects
-        documents = []
-        for obj in response.objects:
-            documents.append(Document(
-                page_content=obj.properties.get("content", ""),
-                metadata={
-                    "type": obj.properties.get("type", ""),
-                    "artist_name": obj.properties.get("artist_name", ""),
-                    "track_name": obj.properties.get("track_name", ""),
-                    "artists": obj.properties.get("artists", ""),
-                    "user_id": obj.properties.get("user_id", "")
-                }
-            ))
-        
-        return documents
+        try:
+            client = self._get_weaviate_client()
+            
+            if not self.collection_exists():
+                return []
+            
+            collection = client.collections.get(self.collection_name)
+            
+            # Generate query embedding
+            query_vector = self.embedding_model.embed_query(query)
+            
+            # Perform vector search
+            response = collection.query.near_vector(
+                near_vector=query_vector,
+                limit=k,
+                return_metadata=MetadataQuery(distance=True)
+            )
+            
+            # Convert results to Document objects
+            documents = []
+            for obj in response.objects:
+                documents.append(Document(
+                    page_content=obj.properties.get("content", ""),
+                    metadata={
+                        "type": obj.properties.get("type", ""),
+                        "artist_name": obj.properties.get("artist_name", ""),
+                        "track_name": obj.properties.get("track_name", ""),
+                        "artists": obj.properties.get("artists", ""),
+                        "user_id": obj.properties.get("user_id", "")
+                    }
+                ))
+            
+            return documents
+        except Exception as e:
+            error_message = str(e)
+            # Check if it's the specific Weaviate error about missing class
+            if "could not find class" in error_message.lower() or "MusicProfile" in error_message:
+                # Return a special marker to indicate the knowledge base needs to be updated
+                raise ValueError("KNOWLEDGE_BASE_NEEDS_UPDATE")
+            # For other errors, re-raise them
+            raise
     
     def delete_user_data(self):
         """Delete all data for this user"""
         client = self._get_weaviate_client()
-        if self.collection_exists():
+        if self.collection_exists(use_cache=False):
             client.collections.delete(self.collection_name)
             self._clear_cache()
             print(f"Deleted collection: {self.collection_name}")
