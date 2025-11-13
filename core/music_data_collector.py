@@ -106,7 +106,13 @@ class MusicDataCollector:
             except:
                 pass
     
-    def save_data_to_file(self, filename="user_music_data.json"):
-        """Save collected data to a JSON file"""
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(self.collected_data, f, indent=2, ensure_ascii=False)
+    def save_data_to_file(self, filename=None):
+        """
+        Save collected data to a JSON file
+        Args:
+            filename: Full filename including user_id (e.g., "user_music_data_{user_id}.json")
+                     If None, file will not be saved
+        """
+        if filename:
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(self.collected_data, f, indent=2, ensure_ascii=False)

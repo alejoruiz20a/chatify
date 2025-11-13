@@ -19,6 +19,8 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "token_info" not in st.session_state:
     st.session_state.token_info = None
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
 if "music_data" not in st.session_state:
     st.session_state.music_data = None
 if "knowledge_base" not in st.session_state:
@@ -35,6 +37,31 @@ if "initializing" not in st.session_state:
 # Initialize authentication manager
 auth_manager = AuthManager()
 
+# Clean up old files without user_id (one-time cleanup)
+def cleanup_old_files():
+    """Remove old files that don't use user_id in filename"""
+    import glob
+    old_files = []
+    
+    # Old files without user_id
+    if os.path.exists("user_token.json"):
+        old_files.append("user_token.json")
+    if os.path.exists("user_music_data.json"):
+        old_files.append("user_music_data.json")
+    
+    # Remove old files
+    for old_file in old_files:
+        try:
+            os.remove(old_file)
+            print(f"Removed old file: {old_file}")
+        except Exception as e:
+            print(f"Error removing {old_file}: {e}")
+
+# Run cleanup once at startup
+if "cleanup_done" not in st.session_state:
+    cleanup_old_files()
+    st.session_state.cleanup_done = True
+
 def handle_auth_callback():
     """Handles Spotify authentication callback"""
     query_params = st.query_params
@@ -47,12 +74,11 @@ def handle_auth_callback():
             st.session_state.token_info = token_info
             st.session_state.authenticated = True
             
-            try:
-                import json
-                with open("user_token.json", "w", encoding='utf-8') as f:
-                    json.dump(token_info, f)
-            except Exception as e:
-                pass
+            # Get user_id immediately after authentication
+            user_id = auth_manager.get_user_id(token_info)
+            if user_id and user_id != 'unknown_user':
+                # Store user_id in session state
+                st.session_state.user_id = user_id
 
             st.query_params.clear()
             st.rerun()
@@ -60,24 +86,7 @@ def handle_auth_callback():
 # Handle authentication callback
 handle_auth_callback()
 
-# Load token from file if not already authenticated
-if not st.session_state.authenticated and st.session_state.token_info is None:
-    try:
-        import json
-        import os
-        if os.path.exists("user_token.json"):
-            with open("user_token.json", "r", encoding='utf-8') as f:
-                st.session_state.token_info = json.load(f)
-                st.session_state.authenticated = True
-                st.rerun()
-    except FileNotFoundError:
-        pass
-    except Exception as e:
-        st.sidebar.error(f"Error loading saved token: {e}")
-        try:
-            os.remove("user_token.json")
-        except:
-            pass
+# No persistent token loading - user must authenticate each session
 
 def initialize_system():
     """Initializes system with authenticated user data"""
@@ -88,6 +97,29 @@ def initialize_system():
             user_id = auth_manager.get_user_id(st.session_state.token_info)
             print(f"User ID: {user_id}")  # Debug
             
+            # Verify token belongs to this user
+            if not user_id or user_id == 'unknown_user':
+                raise ValueError("Could not get user ID from token")
+            
+            # Store user_id in session state
+            st.session_state.user_id = user_id
+            
+            # Clean up old files from other users (keep current user's cache)
+            import glob
+            for token_file in glob.glob("user_token_*.json"):
+                if token_file != f"user_token_{user_id}.json":
+                    try:
+                        os.remove(token_file)
+                    except:
+                        pass
+            
+            for data_file in glob.glob("user_music_data_*.json"):
+                if data_file != f"user_music_data_{user_id}.json":
+                    try:
+                        os.remove(data_file)
+                    except:
+                        pass
+            
             # Check if knowledge base already exists for this user
             status.update(label="Checking knowledge base...")
             knowledge_base = MusicKnowledgeBase(user_id=user_id)
@@ -95,11 +127,12 @@ def initialize_system():
             # Check if collection exists (uses cache, very fast)
             if knowledge_base.collection_exists():
                 status.update(label="Knowledge base found! Loading your data...")
-                # Collection exists, try to load existing data from file
+                # Collection exists, try to load from cache file first (fast)
                 try:
                     import json
-                    if os.path.exists("user_music_data.json"):
-                        with open("user_music_data.json", "r", encoding='utf-8') as f:
+                    data_filename = f"user_music_data_{user_id}.json"
+                    if os.path.exists(data_filename):
+                        with open(data_filename, "r", encoding='utf-8') as f:
                             music_data = json.load(f)
                             # Verify it's the same user
                             if music_data.get('user_profile', {}).get('id') == user_id:
@@ -116,7 +149,8 @@ def initialize_system():
                     collector = MusicDataCollector(st.session_state.token_info)
                     music_data = collector.collect_all_data()
                     st.session_state.music_data = music_data
-                    collector.save_data_to_file("user_music_data.json")
+                    # Save to cache for next time
+                    collector.save_data_to_file(f"user_music_data_{user_id}.json")
             else:
                 # Collection doesn't exist, need to collect all data
                 status.update(label="Collecting your music profile...")
@@ -127,8 +161,8 @@ def initialize_system():
                 status.update(label="Creating knowledge base...")
                 knowledge_base.initialize_knowledge_base(music_data, force_recreate=False)
                 
-                status.update(label="Saving data locally...")
-                collector.save_data_to_file("user_music_data.json")
+                # Save to cache for next time
+                collector.save_data_to_file(f"user_music_data_{user_id}.json")
             
             st.session_state.knowledge_base = knowledge_base
             
@@ -150,6 +184,11 @@ def initialize_system():
 def update_knowledge_base():
     """Updates the knowledge base with fresh data"""
     try:
+        user_id = st.session_state.get('user_id')
+        if not user_id:
+            user_id = auth_manager.get_user_id(st.session_state.token_info)
+            st.session_state.user_id = user_id
+        
         with st.status("Updating Knowledge Base...", expanded=True) as status:
             status.update(label="Collecting fresh music data...")
             collector = MusicDataCollector(st.session_state.token_info)
@@ -158,6 +197,9 @@ def update_knowledge_base():
             
             status.update(label="Updating knowledge base...")
             st.session_state.knowledge_base.update_knowledge_base(music_data)
+            
+            # Update cache file
+            collector.save_data_to_file(f"user_music_data_{user_id}.json")
             
             status.update(label="Refreshing advisor...")
             st.session_state.advisor = MusicAdvisor(
@@ -177,13 +219,6 @@ def update_knowledge_base():
 
 def logout():
     """Logs out the user and clears all session data"""
-    try:
-        import os
-        if os.path.exists("user_token.json"):
-            os.remove("user_token.json")
-    except Exception as e:
-        print(f"Error removing token file: {e}")
-    
     # Close Weaviate connection if exists
     if st.session_state.knowledge_base:
         try:
@@ -204,6 +239,7 @@ def logout():
     st.session_state.messages = []
     st.session_state.data_loaded = False
     st.session_state.initializing = False
+    st.session_state.user_id = None
     
     st.rerun()
 

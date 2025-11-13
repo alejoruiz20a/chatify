@@ -7,3 +7,4 @@ chroma_music_db/
 core/__pycache__/
 user_token.json
 .weaviate_cache_*.txt
+user_music_data_*.json

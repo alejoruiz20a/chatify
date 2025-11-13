@@ -53,7 +53,7 @@ Note: If the knowledge base was just auto-initialized, acknowledge this to the u
 """
         
         response = self.llm.invoke(prompt)
-
+        
         self._add_to_conversation(question, response.content)
         
         return response.content
@@ -158,7 +158,6 @@ Note: If the knowledge base was just auto-initialized, acknowledge this to the u
                 print("Collecting music data for auto-initialization...")
                 collector = MusicDataCollector(self.token_info)
                 self.music_data = collector.collect_all_data()
-                collector.save_data_to_file("user_music_data.json")
             
             # Initialize the knowledge base
             print(f"Auto-initializing knowledge base for user {user_id}...")
