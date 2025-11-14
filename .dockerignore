@@ -1,0 +1,16 @@
+.env
+.git
+.gitignore
+*.pyc
+__pycache__/
+venv/
+*.md
+.cache
+.spotify_cache
+user_token*.json
+user_music_data*.json
+.weaviate_cache*.txt
+chroma_music_db/
+core/__pycache__/
+*.log
+.DS_Store

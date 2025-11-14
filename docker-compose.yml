@@ -1,0 +1,18 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  chatify:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
+      - REDIRECT_URI=${REDIRECT_URI}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - WEAVIATE_API_KEY=${WEAVIATE_API_KEY}
+      - WEAVIATE_URL=${WEAVIATE_URL}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
